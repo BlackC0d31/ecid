@@ -410,7 +410,15 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Main Interface & Navigation"
+    - "Submit CID Tab - Person A/B Information"
+    - "Submit CID Tab - Accident Details"
+    - "PDF Upload Functionality"
+    - "Form Submission Process"
+    - "Track CID Tab"
+    - "History Tab"
+    - "Integration Testing"
   stuck_tasks: []
   test_all: true
   test_priority: "high_first"
