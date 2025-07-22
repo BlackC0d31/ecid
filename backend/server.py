@@ -391,7 +391,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def get_cid_status(claim_id: str):
     """Get CID status by claim ID"""
     try:
-        cid_record = await db.cid_records.find_one({"claim_id": claim_id})
+        cid_record = await db.cid_records.find_one({"claim_id": claim_id}, {"_id": 0})
         if not cid_record:
             raise HTTPException(status_code=404, detail="CID not found")
         
