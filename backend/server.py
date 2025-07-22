@@ -411,7 +411,7 @@ async def get_cid_status(claim_id: str):
 async def get_all_cids():
     """Get all CID records (without PDF data)"""
     try:
-        cids = await db.cid_records.find({}, {"pdf_base64": 0}).to_list(1000)
+        cids = await db.cid_records.find({}, {"pdf_base64": 0, "_id": 0}).to_list(1000)
         return cids
     except Exception as e:
         logger.error(f"Error retrieving CIDs: {str(e)}")
