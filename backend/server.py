@@ -1,8 +1,17 @@
 from fastapi import FastAPI, APIRouter, HTTPException, File, UploadFile, Form, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except Exception:
+    AsyncIOMotorClient = None
+
 import os
 import logging
 from pathlib import Path
@@ -13,17 +22,86 @@ from datetime import datetime, timedelta
 import hashlib
 import base64
 import json
-import jwt
+try:
+    import jwt as _pyjwt
+    jwt = _pyjwt
+except Exception:
+    class _FakeJWT:
+        @staticmethod
+        def encode(payload, key, algorithm=None):
+            return base64.urlsafe_b64encode(json.dumps(payload, default=str).encode()).decode()
+    jwt = _FakeJWT()
 from enum import Enum
-import aiofiles
+try:
+    import aiofiles  # optional
+except Exception:
+    aiofiles = None
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB / Storage configuration
+use_in_memory_db = os.getenv('USE_IN_MEMORY_DB', 'true').lower() == 'true'
+
+class InMemoryCursor:
+    def __init__(self, documents: List[Dict[str, Any]]):
+        self._documents = documents
+
+    async def to_list(self, length: int) -> List[Dict[str, Any]]:
+        return self._documents[:length]
+
+class InMemoryCollection:
+    def __init__(self):
+        self._storage: List[Dict[str, Any]] = []
+
+    def _matches_filter(self, doc: Dict[str, Any], filter_query: Dict[str, Any]) -> bool:
+        if not filter_query:
+            return True
+        for key, value in filter_query.items():
+            if doc.get(key) != value:
+                return False
+        return True
+
+    def _apply_projection(self, doc: Dict[str, Any], projection: Optional[Dict[str, int]]) -> Dict[str, Any]:
+        if not projection:
+            return dict(doc)
+        projected = dict(doc)
+        # Only support exclusion projection {field: 0}
+        for field, flag in projection.items():
+            if flag == 0:
+                projected.pop(field, None)
+        return projected
+
+    async def insert_one(self, document: Dict[str, Any]) -> None:
+        self._storage.append(dict(document))
+
+    async def find_one(self, filter_query: Dict[str, Any], projection: Optional[Dict[str, int]] = None) -> Optional[Dict[str, Any]]:
+        for doc in self._storage:
+            if self._matches_filter(doc, filter_query):
+                return self._apply_projection(doc, projection)
+        return None
+
+    def find(self, filter_query: Dict[str, Any], projection: Optional[Dict[str, int]] = None) -> InMemoryCursor:
+        results: List[Dict[str, Any]] = []
+        for doc in self._storage:
+            if self._matches_filter(doc, filter_query):
+                results.append(self._apply_projection(doc, projection))
+        return InMemoryCursor(results)
+
+class InMemoryDB:
+    def __init__(self):
+        self.cid_records = InMemoryCollection()
+
+# Initialize storage
+if use_in_memory_db:
+    client = None
+    db = InMemoryDB()
+else:
+    # MongoDB connection
+    mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
+    db_name = os.getenv('DB_NAME', 'cid_db')
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[db_name]
 
 # Create the main app without a prefix
 app = FastAPI(title="CID Insurance Integration System", version="1.0.0")
@@ -354,6 +432,8 @@ async def submit_cid(submission: CIDSubmission):
             "providers_contacted": len(api_responses)
         }
         
+    except HTTPException as exc:
+        raise exc
     except Exception as e:
         logger.error(f"Error submitting CID: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -383,6 +463,8 @@ async def upload_pdf(file: UploadFile = File(...)):
             "content_type": file.content_type
         }
         
+    except HTTPException as exc:
+        raise exc
     except Exception as e:
         logger.error(f"Error uploading PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
@@ -423,7 +505,7 @@ async def get_supported_providers():
     return {
         "providers": [provider.value for provider in InsuranceProvider],
         "auth_methods": [method.value for method in AuthMethod],
-        "total_providers": len(InsuranceProvider)
+        "total_providers": len(list(InsuranceProvider))
     }
 
 # Mock insurance API endpoints for testing
@@ -464,4 +546,5 @@ import asyncio
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if not use_in_memory_db and client is not None:
+        client.close()

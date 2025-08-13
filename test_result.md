@@ -171,7 +171,7 @@ backend:
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
       - working: true
         agent: "testing"
@@ -406,7 +406,7 @@ frontend:
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 1
+  test_sequence: 2
   run_ui: false
 
 test_plan:
@@ -428,3 +428,5 @@ agent_communication:
     message: "Comprehensive backend testing completed. Fixed missing aiofiles dependency and MongoDB ObjectId serialization issues. 13/14 core tests passing (92.9% success rate). All key features verified: modular provider system, routing logic, PDF processing, hashing, authentication, and database storage. Only minor issue: error handling returns 500 instead of 400 for invalid input, but validation works correctly."
   - agent: "testing"
     message: "Starting comprehensive frontend testing. Added 8 frontend tasks covering all major functionality: navigation, form sections, PDF upload, submission process, tracking, history, and integration testing. Will test using the production URL from .env file."
+  - agent: "main"
+    message: "Backend updated: preserve HTTP 400 for invalid CID data, add in-memory DB fallback with env defaults (USE_IN_MEMORY_DB=true), and guard optional imports (dotenv, motor, jwt, aiofiles). Please retest backend endpoints."
